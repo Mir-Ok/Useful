@@ -1,0 +1,6 @@
+# Обработка всех исключений, вывод в красивом формате
+
+try:
+    <code>   
+except Exception as e:
+  return json.dumps(str(e), ensure_ascii=False)
