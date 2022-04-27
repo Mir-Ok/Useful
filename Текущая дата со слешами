@@ -1,0 +1,11 @@
+# 28/05/2022
+
+from datetime import datetime
+
+current_datetime = datetime.now()  # модуль для работы с датами
+
+day_cur = str(current_datetime.day).zfill(2)
+month_cur = str(current_datetime.month).zfill(2)
+year_cur = current_datetime.year
+
+date_cur = f'{day_cur}/{month_cur}/{year_cur}'
