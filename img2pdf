@@ -1,0 +1,26 @@
+Имеются файлы: 
+1-page0.jpg 
+1-page1.jpg 
+1-page2.jpg 
+1-page3.jpg 
+2-page0.jpg 
+2-page1.jpg 
+2-page2.jpg 
+2-page3.jpg 
+
+Как сделать так чтобы объединить их в итоге как 1.pdf 2.pdf
+
+
+# multiple inputs (variant 2)
+with open("name.pdf","wb") as f:
+    f.write(img2pdf.convert(["test1.jpg", "test2.png"]))
+
+Т.е. вам нужно передать список путей к картинкам.
+Это удобно сделать через модуль glob, так вы получите список путей:
+    
+from glob import glob
+
+imgs = glob("1-page*.jpg") # ['1-page0.jpg', '1-page1.jpg', '1-page2.jpg', '1-page3.jpg']
+f.write(img2pdf.convert(imgs))
+
+------------------------------------------
