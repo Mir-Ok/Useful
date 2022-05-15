@@ -23,3 +23,5 @@ img.save('sid.jpg', 'jpeg')
 -------------------------
 Атрибут tile 
 https://reddeveloper.ru/questions/numpy-unichtozhayet-atribut-plitki-pil-tiffimagefile-bmev7
+
+https://stackoverflow.com/questions/54452107/numpy-destroys-pil-tiffimagefiles-tile-attribute
