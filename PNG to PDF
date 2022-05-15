@@ -1,0 +1,19 @@
+https://datatofish.com/images-to-pdf-python/
+
+from PIL import Image, ImageSequence
+
+из изображения импорта PIL
+
+image_1 = Image.open(r'C:\Users\Ron\Desktop\Test\view_1.png')
+image_2 = Image.open(r'C:\Users\Ron\Desktop\Test\view_2.png')
+image_3 = Image.open(r'C:\Users\Ron\Desktop\Test\view_3.png')
+image_4 = Image.open(r'C:\Users\Ron\Desktop\Test\view_4.png')
+
+im_1 = image_1.convert('RGB')
+im_2 = image_2.convert('RGB')
+im_3 = image_3.convert('RGB')
+im_4 = image_4.convert('RGB')
+
+image_list = [im_2, im_3, im_4]
+
+im_1.save(r'C:\Users\Ron\Desktop\Test\my_images.pdf', save_all=True, append_images=image_list)
