@@ -18,3 +18,8 @@ except IOError:
     sys.exit(1)
  
 img.save('sid.jpg', 'jpeg')
+
+
+-------------------------
+Атрибут tile 
+https://reddeveloper.ru/questions/numpy-unichtozhayet-atribut-plitki-pil-tiffimagefile-bmev7
