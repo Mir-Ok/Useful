@@ -1,0 +1,230 @@
+import pathlib
+import tempfile
+
+import requests
+from flask import Flask, request
+import json
+from PIL import Image, ImageSequence
+import os
+import shutil
+from pdf2image import convert_from_path
+from utils import det_img_url, get_parameters, send_to_elma_get_uid, create_documents, convert_to_pdf, sort_list_names
+from pathlib import Path
+import tempfile
+from random import randint
+
+
+app = Flask(__name__)  # создаем приложение и сервер
+
+
+@app.route('/split_to_files_byQR', methods=['POST'])  # разрешаем принятие POST и GET
+def split_to_files_byQR():
+    """ Функция принимает на вход json вида { "s3uid":"", "filename":"sample_stream.tiff", "regexp":"SAP*" },
+        проверить тип файла. Допустимыми являются: jpg, jpeg, png, bmp,tiff, tif, pdf
+        если тип не является допустимым, возвращать {data:null, error:"file has extension ${фактическое расширение}"}
+    """
+
+    finished = dict()
+    finished['data'] = None
+    finished['error'] = None
+
+    try:
+        # принимаем и проверяем входящие параметры запроса
+        try:
+            request_data = request.get_json()
+            suffix_list = ['jpg', 'jpeg', 'png', 'bmp', 'tiff', 'tif', 'pdf']
+            file_name, file_suffix = request_data["filename"].split('.')
+            file_suffix.lower()
+            if file_suffix not in suffix_list:  # если файл не подходящего формата - выход
+                finished['error'] = f"file has extension .{file_suffix}"
+                return json.dumps(finished, ensure_ascii=False)
+            print(file_name, file_suffix)
+        except ValueError:
+            return {"error": "Пустой входящий запрос"}
+
+        try:
+            file_s3uid = request_data["s3uid"]  # получаем s3uid и скачиваем
+            img_url = det_img_url(file_s3uid)  # получаем ссылку на объект ИМПОРТИРОВАННАЯ ФУНКЦИЯ
+
+            if "regexp" in request_data:  # если есть QR - сохраняем
+                if request_data["regexp"] == "SAP-":
+                    file_pattern = request_data["regexp"]
+                    print(file_pattern)
+                else:
+                    return {"error": "Некорректный шаблон"}
+
+        except KeyError:
+            return {"error": "Некорректные ключи запроса/ значения ключей"}
+
+        print(img_url)
+
+        png_dir = 'png/'
+        if not os.path.exists(png_dir):
+            os.mkdir(png_dir)  # для промежуточных файлов
+
+        pdf_dir = 'pdf/'
+        if not os.path.exists(pdf_dir):
+            os.mkdir(pdf_dir)  # для собранных файлов
+
+        pdf_name, pdf_suf = f'{file_name}', '.pdf'  # путь для сохранения
+
+        #  делим PDF  на PNG
+        if file_suffix == 'pdf':
+            try:
+                pdf_file = requests.get(img_url)
+                tmp_dir = 'tmp/'
+                if not os.path.exists(tmp_dir):
+                    os.mkdir(tmp_dir)
+                temp_url = Path(tmp_dir, 'temp.pdf')
+
+                with open(temp_url, 'wb') as f:  #
+                    f.write(pdf_file.content)
+
+                # for Unix
+                # with tempfile.TemporaryDirectory() as path:
+                #     images = convert_from_path(temp_url, dpi=200, fmt="png",
+                #                                output_folder=Path(png_dir), output_file='png')
+
+                # for Win
+                poppler_path = 'C:\Program Files\poppler-0.68.0_x86\\bin'
+                with tempfile.TemporaryDirectory() as path:
+                    images = convert_from_path(temp_url, dpi=200, fmt="png", poppler_path=poppler_path,
+                                               output_folder=Path(png_dir), output_file='png')
+                    print(images)
+
+            except ValueError:
+                return {"error": "Сервер не отвечает "}
+
+        # делим TIFF на PNG
+        else:
+            try:
+                tiff_file_raw = Image.open(requests.get(img_url, stream=True).raw)
+                number = 0
+                for fr in ImageSequence.Iterator(tiff_file_raw):
+                    fr.save(Path(png_dir, f'png_{number}' + '.png'))  # сохраняю часть по ссылке
+                    number += 1
+
+            except ValueError:
+                return {"error": "Сервер не отвечает "}
+
+        png_dir = sort_list_names(png_dir)  # создаем упорядоченный список фрагментов документа ИМПОРТИРУЕТСЯ
+        print(png_dir)
+
+        # получаем полный список КОРРЕКТНЫХ кодов (с возм. нулями в начале) и список всех изображений, ИМПОРТИРУЕТСЯ
+        qr_data_list, qr_data_list_01, image_list, totally_pages = get_parameters(png_dir, file_pattern=None)
+        print('Cписок кодов        ', qr_data_list)
+        print('Список кодов Boolean', qr_data_list_01)
+        print('Cписок файлов       ', image_list)
+
+        # ----------------------------
+        # если все страницы БЕЗ кодов
+        if sum(qr_data_list_01) == 0:
+
+            i = 0
+            end_path = convert_to_pdf(pdf_dir, pdf_name, pdf_suf, image_list,
+                                      i)  # создание файла по указанному пути ИМПОРТИРУЕТСЯ
+            print(end_path)
+            file_uid = send_to_elma_get_uid(end_path)  # отправка на сервер и получение uid ИМПОРТИРУЕТСЯ
+            print(file_uid)
+
+            # Сделать os.rename
+
+            from_page = 0
+            to_page = totally_pages - 1
+            documents = create_documents(from_page, to_page, file_uid, end_path)
+            finished['data'] = {"totally_pages": totally_pages,
+                                "documents": documents}
+
+            return json.dumps(finished, ensure_ascii=False)
+
+        # ----------------------------
+        # если страницы С кодами
+        else:
+            # игнор страниц без QR-кода в начале, создание ВОЗМОЖНО урезанных копий
+            i = 0
+            while i < len(qr_data_list_01):
+                if qr_data_list_01[0] == 0:
+                    del (qr_data_list_01[0])
+                    del (image_list[0])
+                i += 1
+
+            # теперь список точно стартует с кода, разбиваем на части
+            end_path_list = []  # финальный список путей
+            all_page_list = []  # финальный список страниц (от, до)
+
+            slice_inp_data = [image_list[0]]  # фрагмент с одним QR в начале
+            page_list = [0]  # счетчик количества листов
+
+            for i in range(1, len(qr_data_list_01)):
+
+                # если нет нового кода - присоединяем к текущему списку
+                if qr_data_list_01[i] - qr_data_list_01[0] == -1:
+                    slice_inp_data.append(image_list[i])
+                    page_list.append(i)
+
+                # если есть - закрываем пополнение текущего
+                else:
+                    end_path_list, all_page_list = convert_to_pdf(pdf_dir, pdf_name, pdf_suf, image_list, i,
+                                                                  end_path_list, page_list, all_page_list)
+
+                    # Начинаем новый
+                    slice_inp_data.clear()
+                    page_list.clear()
+                    slice_inp_data.append(image_list[i])
+                    page_list.append(i)
+
+            end_path_list, all_page_list = convert_to_pdf(pdf_dir, pdf_name, pdf_suf, image_list, i, end_path_list,
+                                                          page_list, all_page_list)
+
+            # --------------------------------------
+
+            end_name_list = sort_list_names(pdf_dir)
+            print(end_name_list)
+            print('Ку')
+
+            for i in range(len(end_name_list)):
+
+                now = randint(0, 100000)
+                p = Path(pdf_dir, f'{end_name_list[i]}')
+                p.rename(Path(pdf_dir, f'{file_name}_{now}_({i}){pdf_suf}'))
+
+            new_end_name_list = os.listdir(pdf_dir)
+            print(new_end_name_list)
+
+            file_uid_list = []
+            for ful in new_end_name_list:
+                file_uid = send_to_elma_get_uid(f'{pdf_dir}{ful}')
+                file_uid_list.append(file_uid)
+
+            documents = []  # параметры собраны
+            for i in range(len(file_uid_list)):
+                document = create_documents(all_page_list[i][0], all_page_list[i][1], file_uid_list[i],
+                                            new_end_name_list[i], i)
+                documents.append(document)
+
+            finished['data'] = {"totally_pages": totally_pages,
+                                "documents": documents}
+
+            # if os.path.exists(pdf_dir):
+            #     shutil.rmtree('pdf/')
+            # if os.path.exists(png_dir):
+            #     shutil.rmtree('png/')
+            # if os.path.exists(tmp_dir):
+            #     shutil.rmtree('tmp/')
+
+            return json.dumps(finished, ensure_ascii=False)
+
+    except Exception as e:
+
+        finished['error'] = str(e)
+        # if os.path.exists(pdf_dir):
+        #     shutil.rmtree('pdf/')
+        # if os.path.exists(png_dir):
+        #     shutil.rmtree('png/')
+        # if os.path.exists(tmp_dir):
+        #     shutil.rmtree('tmp/')
+
+        return json.dumps(finished, ensure_ascii=False)
+
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=3000)
