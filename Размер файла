@@ -1,0 +1,1 @@
+file_size = pathlib.Path(file_path).stat().st_size
